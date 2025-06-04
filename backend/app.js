@@ -8,6 +8,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer'); // Import multer for file uploads
 const path = require('path'); // Import path module for file paths
+const fs = require('fs');
 
 const app = express();
 // Use a standard port for the Express server, eg., 5000.
@@ -25,7 +26,7 @@ const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         // Create 'uploads' directory if it doesn't exist
         const uploadDir = path.join(__dirname, 'uploads');
-        require('fs').mkdir(uploadDir, { recursive: true }, (err) => {
+        fs.mkdir(uploadDir, { recursive: true }, (err) => {
             if (err) console.error('Error creating uploads directory:', err);
             cb(null, uploadDir);
         });
@@ -205,7 +206,7 @@ app.post('/api/products', authenticateToken, upload.single('image'), async (req,
     if (!title || !price || !category || !description || !contact_number) {
         // If required fields are missing, delete the uploaded file if any
         if (req.file) {
-            require('fs').unlink(req.file.path, (err) => {
+            fs.unlink(req.file.path, (err) => {
                 if (err) console.error('Error deleting file:', err);
             });
         }
@@ -233,7 +234,7 @@ app.post('/api/products', authenticateToken, upload.single('image'), async (req,
     } catch (error) {
         // If DB insertion fails, delete the uploaded file if any
         if (req.file) {
-            require('fs').unlink(req.file.path, (err) => {
+            fs.unlink(req.file.path, (err) => {
                 if (err) console.error('Error deleting file:', err);
             });
         }
@@ -242,79 +243,47 @@ app.post('/api/products', authenticateToken, upload.single('image'), async (req,
     }
 });
 
-// PUT /api/products/:id - Update an existing product (protected, owner only, with file upload)
+// PUT /api/products/:id - Update a product (protected)
 app.put('/api/products/:id', authenticateToken, upload.single('image'), async (req, res) => {
     const { id } = req.params;
     const { title, price, category, description, contact_number, sold } = req.body;
-    const user_id = req.user.id; // Authenticated user's ID
-    const new_image_url = req.file ? `uploads/${req.file.filename}` : req.body.image_url; // Use new file or existing URL
-
-    if (!title || !price || !category || !description || !contact_number) {
-        // If required fields are missing, delete the newly uploaded file if any
-        if (req.file) {
-            require('fs').unlink(req.file.path, (err) => {
-                if (err) console.error('Error deleting file:', err);
-            });
-        }
-        return res.status(400).json({ message: 'Missing required product fields for update' });
-    }
+    const seller_id = req.user.id;
 
     try {
-        // First, get the current image_url and check ownership
-        const [existingProductRows] = await pool.execute(
-            'SELECT seller_id, image_url FROM products WHERE id = ?',
-            [id]
-        );
-        const existingProduct = existingProductRows[0];
-
-        if (!existingProduct) {
-            // If product not found, delete the newly uploaded file if any
+        // Check if product exists and belongs to user
+        const [rows] = await pool.execute('SELECT * FROM products WHERE id = ? AND seller_id = ?', [id, seller_id]);
+        const product = rows[0];
+        if (!product) {
+            // Delete uploaded file if any
             if (req.file) {
-                require('fs').unlink(req.file.path, (err) => {
+                fs.unlink(req.file.path, (err) => {
                     if (err) console.error('Error deleting file:', err);
                 });
             }
-            return res.status(404).json({ message: 'Product not found' });
-        }
-        if (existingProduct.seller_id !== user_id) {
-            // If unauthorized, delete the newly uploaded file if any
-            if (req.file) {
-                require('fs').unlink(req.file.path, (err) => {
-                    if (err) console.error('Error deleting file:', err);
-                });
-            } // Removed the extra closing parenthesis here
-            return res.status(403).json({ message: 'Unauthorized: You can only update your own products' });
+            return res.status(404).json({ message: 'Product not found or not authorized' });
         }
 
-        // If a new file was uploaded and there was an old file, delete the old file
-        if (req.file && existingProduct.image_url && existingProduct.image_url.startsWith('uploads/')) {
-            const oldImagePath = path.join(__dirname, existingProduct.image_url);
-            require('fs').unlink(oldImagePath, (err) => {
-                if (err) console.error('Error deleting old image file:', err);
+        // If new image uploaded, delete old image file
+        if (req.file && product.image_url) {
+            const oldImagePath = path.join(__dirname, product.image_url);
+            fs.unlink(oldImagePath, (err) => {
+                if (err) console.error('Error deleting old image:', err);
             });
         }
 
-        // Update the product
-        const [result] = await pool.execute(
-            'UPDATE products SET title = ?, price = ?, category = ?, description = ?, image_url = ?, contact_number = ?, sold = ? WHERE id = ?',
-            [title, price, category, description, new_image_url, contact_number, sold, id]
-        );
+        const image_url = req.file ? `uploads/${req.file.filename}` : product.image_url;
 
-        if (result.affectedRows === 0) {
-            // If no rows affected, delete the newly uploaded file if any
-            if (req.file) {
-                require('fs').unlink(req.file.path, (err) => {
-                    if (err) console.error('Error deleting file:', err);
-                });
-            }
-            return res.status(404).json({ message: 'Product not found or no changes made' });
-        }
+        // Update the product in DB
+        await pool.execute(
+            `UPDATE products SET title = ?, price = ?, category = ?, description = ?, image_url = ?, contact_number = ?, sold = ? WHERE id = ?`,
+            [title || product.title, price || product.price, category || product.category, description || product.description, image_url, contact_number || product.contact_number, sold !== undefined ? sold : product.sold, id]
+        );
 
         res.status(200).json({ message: 'Product updated successfully' });
     } catch (error) {
-        // If any error occurs, delete the newly uploaded file if any
+        // Delete uploaded file if any on error
         if (req.file) {
-            require('fs').unlink(req.file.path, (err) => {
+            fs.unlink(req.file.path, (err) => {
                 if (err) console.error('Error deleting file:', err);
             });
         }
@@ -323,40 +292,29 @@ app.put('/api/products/:id', authenticateToken, upload.single('image'), async (r
     }
 });
 
-// DELETE /api/products/:id - Delete a product (protected, owner only)
+// DELETE /api/products/:id - Delete a product (protected)
 app.delete('/api/products/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
-    const user_id = req.user.id; // Authenticated user's ID
+    const seller_id = req.user.id;
 
     try {
-        // First, check if the product exists and belongs to the authenticated user
-        const [existingProductRows] = await pool.execute(
-            'SELECT seller_id, image_url FROM products WHERE id = ?',
-            [id]
-        );
-        const existingProduct = existingProductRows[0];
-
-        if (!existingProduct) {
-            return res.status(404).json({ message: 'Product not found' });
-        }
-        if (existingProduct.seller_id !== user_id) {
-            return res.status(403).json({ message: 'Unauthorized: You can only delete your own products' });
+        // Check if product exists and belongs to user
+        const [rows] = await pool.execute('SELECT * FROM products WHERE id = ? AND seller_id = ?', [id, seller_id]);
+        const product = rows[0];
+        if (!product) {
+            return res.status(404).json({ message: 'Product not found or not authorized' });
         }
 
-        // Delete the product
-        const [result] = await pool.execute('DELETE FROM products WHERE id = ?', [id]);
-
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ message: 'Product not found' });
-        }
-
-        // If deletion is successful and there was an associated image, delete the image file
-        if (existingProduct.image_url && existingProduct.image_url.startsWith('uploads/')) {
-            const imagePath = path.join(__dirname, existingProduct.image_url);
-            require('fs').unlink(imagePath, (err) => {
-                if (err) console.error('Error deleting associated image file:', err);
+        // Delete image file from uploads folder if exists
+        if (product.image_url) {
+            const imagePath = path.join(__dirname, product.image_url);
+            fs.unlink(imagePath, (err) => {
+                if (err) console.error('Error deleting image:', err);
             });
         }
+
+        // Delete the product from database
+        await pool.execute('DELETE FROM products WHERE id = ?', [id]);
 
         res.status(200).json({ message: 'Product deleted successfully' });
     } catch (error) {
@@ -365,8 +323,7 @@ app.delete('/api/products/:id', authenticateToken, async (req, res) => {
     }
 });
 
-// Start the server
+// --- Server start ---
 app.listen(EXPRESS_PORT, () => {
-    console.log(`Server running on port ${EXPRESS_PORT}`);
-    console.log(`Backend API available at http://localhost:${EXPRESS_PORT}`);
+    console.log(`Server running on http://localhost:${EXPRESS_PORT}`);
 });

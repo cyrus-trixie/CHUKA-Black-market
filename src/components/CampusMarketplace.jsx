@@ -3,7 +3,7 @@ import { Search, Plus, User, LogOut, Edit, Trash2, Check, X } from 'lucide-react
 import UserDashboard from './UserDashboard'; // Correct import for the separate UserDashboard component
 
 // In CampusMarketplace.jsx
-const API_BASE_URL = 'http://localhost:5000/api';  // Define your backend API base URL
+const API_BASE_URL = 'https://chuka-black-market.onrender.com/api';  // Define your backend API base URL
 
 const CampusMarketplace = () => {
   const [currentUser, setCurrentUser] = useState(null);
