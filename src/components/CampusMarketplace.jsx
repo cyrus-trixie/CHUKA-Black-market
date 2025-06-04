@@ -670,7 +670,7 @@ const CampusMarketplace = () => {
                                     value={newItem.contact_number}
                                     onChange={(e) => setNewItem({ ...newItem, contact_number: e.target.value })}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                                    placeholder="e.g., 0712345678"
+                                    placeholder="e.g., 254712345678"
                                 />
                             </div>
                             <button
