@@ -9,54 +9,36 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer'); // Import multer
 const path = require('path'); // Import path for directory handling
 const fs = require('fs'); // Import file system module
+const { v2: cloudinary } = require('cloudinary'); // Import Cloudinary
+const { CloudinaryStorage } = require('multer-storage-cloudinary'); // Import Cloudinary storage for multer
 
 const app = express();
 
 const EXPRESS_PORT = process.env.EXPRESS_PORT || 5000;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${EXPRESS_PORT}`;
 
-// Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, 'uploads');
-const imagesDir = path.join(uploadsDir, 'images');
+// Cloudinary configuration
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
-if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir);
-}
-if (!fs.existsSync(imagesDir)) {
-    fs.mkdirSync(imagesDir);
-}
-
-// Multer storage configuration
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, imagesDir); // Store images in the uploads/images directory
+// Multer storage configuration using Cloudinary
+const storage = new CloudinaryStorage({
+    cloudinary: cloudinary,
+    params: {
+        folder: 'campus_marketplace_images', // Optional: Specify a folder in your Cloudinary account
+        allowed_formats: ['jpeg', 'png', 'jpg', 'gif']
     },
-    filename: function (req, file, cb) {
-        // Generate a unique filename: fieldname-timestamp.ext
-        cb(null, file.fieldname + '-' + Date.now() + path.extname(file.originalname));
-    }
 });
 
-const upload = multer({ 
-    storage: storage,
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB file size limit
-    fileFilter: (req, file, cb) => {
-        const filetypes = /jpeg|jpg|png|gif/;
-        const mimetype = filetypes.test(file.mimetype);
-        const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-
-        if (mimetype && extname) {
-            return cb(null, true);
-        }
-        cb(new Error("Error: File upload only supports the following filetypes: " + filetypes));
-    }
-});
+const upload = multer({ storage: storage, limits: { fileSize: 5 * 1024 * 1024 } }); // 5 MB limit
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true })); // For parsing application/x-www-form-urlencoded
-app.use('/uploads', express.static(uploadsDir)); // Serve static files from the uploads directory
 
 // Database Connection Pool
 const pool = mysql.createPool({
@@ -155,14 +137,7 @@ app.get('/api/products', async (req, res) => {
              FROM products p
              JOIN users u ON p.seller_id = u.id`
         );
-
-        // Prepend BASE_URL to image_url if it's a local file path
-        const productsWithFullImageUrls = products.map(product => ({
-            ...product,
-            image_url: product.image_url ? `${BASE_URL}/${product.image_url}` : null
-        }));
-
-        res.status(200).json(productsWithFullImageUrls);
+        res.status(200).json(products);
     } catch (error) {
         console.error("Error fetching products:", error); // Log the actual error
         res.status(500).json({ message: 'Server error fetching products' });
@@ -183,12 +158,6 @@ app.get('/api/products/:id', async (req, res) => {
 
         const product = rows[0];
         if (!product) return res.status(404).json({ message: 'Product not found' });
-
-        // Prepend BASE_URL to image_url if it's a local file path
-        if (product.image_url) {
-            product.image_url = `${BASE_URL}/${product.image_url}`;
-        }
-
         res.status(200).json(product);
     } catch (error) {
         console.error("Error fetching product by ID:", error); // Log the actual error
@@ -198,36 +167,25 @@ app.get('/api/products/:id', async (req, res) => {
 
 // POST /api/products
 app.post('/api/products', authenticateToken, upload.single('image_file'), async (req, res) => {
-    // When using multer, text fields are in req.body, file is in req.file
+    // When using multer-storage-cloudinary, req.file contains information about the uploaded image
     const { title, price, category, description, contact_number, location } = req.body;
     const seller_id = req.user.id;
-    const image_path = req.file ? `uploads/images/${req.file.filename}` : null; // Path to the uploaded image
+    const image_url = req.file ? req.file.path : null; // Cloudinary URL
 
     if (!title || !price || !category || !description || !contact_number || !location) {
-        // If image was uploaded but other fields are missing, delete the image
-        if (req.file) {
-            fs.unlink(req.file.path, (err) => {
-                if (err) console.error("Error deleting incomplete upload:", err);
-            });
-        }
         return res.status(400).json({ message: 'Missing required product fields: title, price, category, description, contact number, location.' });
     }
-    
+
     // Validate price as a number
     const parsedPrice = parseFloat(price);
     if (isNaN(parsedPrice) || parsedPrice < 0) {
-        if (req.file) {
-            fs.unlink(req.file.path, (err) => {
-                if (err) console.error("Error deleting incomplete upload:", err);
-            });
-        }
         return res.status(400).json({ message: 'Price must be a valid positive number.' });
     }
 
     try {
         const [result] = await pool.execute(
             'INSERT INTO products (title, price, category, description, image_url, contact_number, location, seller_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [title, parsedPrice, category, description, image_path, contact_number, location, seller_id]
+            [title, parsedPrice, category, description, image_url, contact_number, location, seller_id]
         );
 
         const newProduct = {
@@ -236,7 +194,7 @@ app.post('/api/products', authenticateToken, upload.single('image_file'), async 
             price: parsedPrice,
             category,
             description,
-            image_url: image_path ? `${BASE_URL}/${image_path}` : null, // Send back full URL
+            image_url, // Cloudinary URL
             contact_number,
             location,
             seller_id,
@@ -247,12 +205,6 @@ app.post('/api/products', authenticateToken, upload.single('image_file'), async 
         res.status(201).json({ message: 'Product added successfully', product: newProduct });
     } catch (error) {
         console.error("Error adding product:", error); // Log the actual error
-        // If there's a DB error after file upload, delete the uploaded file
-        if (req.file) {
-            fs.unlink(req.file.path, (err) => {
-                if (err) console.error("Error deleting failed upload:", err);
-            });
-        }
         res.status(500).json({ message: 'Server error adding product' });
     }
 });
@@ -260,9 +212,9 @@ app.post('/api/products', authenticateToken, upload.single('image_file'), async 
 // PUT /api/products/:id
 app.put('/api/products/:id', authenticateToken, upload.single('image_file'), async (req, res) => {
     const { id } = req.params;
-    const { title, price, category, description, contact_number, sold, location } = req.body; // image_url is now image_file via multer
+    const { title, price, category, description, contact_number, sold, location } = req.body;
     const seller_id = req.user.id;
-    const new_image_path = req.file ? `uploads/images/${req.file.filename}` : null; // New image path if a new file was uploaded
+    const new_image_file = req.file; // Contains Cloudinary information if a new image was uploaded
 
     try {
         const [rows] = await pool.execute('SELECT * FROM products WHERE id = ? AND seller_id = ?', [id, seller_id]);
@@ -270,37 +222,30 @@ app.put('/api/products/:id', authenticateToken, upload.single('image_file'), asy
         if (!product) return res.status(404).json({ message: 'Product not found or not authorized' });
 
         let updated_image_url = product.image_url;
+        let public_id_to_delete = null;
 
-        // If a new image was uploaded, delete the old one and update the path
-        if (new_image_path) {
-            if (product.image_url) {
-                // Ensure the path is relative and within the uploads directory before deleting
-                const oldImagePath = path.join(__dirname, product.image_url);
-                if (fs.existsSync(oldImagePath)) {
-                    fs.unlink(oldImagePath, (err) => {
-                        if (err) console.error(`Error deleting old image file: ${oldImagePath}`, err);
-                    });
-                }
+        // If a new image was uploaded
+        if (new_image_file) {
+            updated_image_url = new_image_file.path;
+            // Extract public_id from the old image URL to delete from Cloudinary
+            if (product.image_url && product.image_url.includes('cloudinary')) {
+                const parts = product.image_url.split('/');
+                // Assuming the public_id is the part before the last dot (extension)
+                const filenameWithExtension = parts[parts.length - 1];
+                public_id_to_delete = `campus_marketplace_images/${filenameWithExtension.substring(0, filenameWithExtension.lastIndexOf('.'))}`;
             }
-            updated_image_url = new_image_path;
         }
 
-        const parsedPrice = price !== undefined ? parseFloat(price) : product.price;
-        if (isNaN(parsedPrice) || parsedPrice < 0) {
-            if (req.file) { // If a new file was uploaded, delete it due to validation error
-                fs.unlink(req.file.path, (err) => {
-                    if (err) console.error("Error deleting incomplete upload during update:", err);
-                });
-            }
+        const parsedPrice = price !== undefined ? parseFloat(price) : undefined;
+        if (price !== undefined && (isNaN(parsedPrice) || parsedPrice < 0)) {
             return res.status(400).json({ message: 'Price must be a valid positive number.' });
         }
-
 
         await pool.execute(
             `UPDATE products SET title = ?, price = ?, category = ?, description = ?, image_url = ?, contact_number = ?, location = ?, sold = ? WHERE id = ?`,
             [
                 title || product.title,
-                parsedPrice,
+                parsedPrice !== undefined ? parsedPrice : product.price,
                 category || product.category,
                 description || product.description,
                 updated_image_url,
@@ -311,15 +256,20 @@ app.put('/api/products/:id', authenticateToken, upload.single('image_file'), asy
             ]
         );
 
+        // Delete the old image from Cloudinary if a new one was uploaded and an old one existed
+        if (public_id_to_delete) {
+            cloudinary.uploader.destroy(public_id_to_delete, (error, result) => {
+                if (error) {
+                    console.error(`Error deleting image from Cloudinary (public ID: ${public_id_to_delete}):`, error);
+                } else {
+                    console.log(`Successfully deleted image from Cloudinary (public ID: ${public_id_to_delete}):`, result);
+                }
+            });
+        }
+
         res.status(200).json({ message: 'Product updated successfully' });
     } catch (error) {
         console.error("Error updating product:", error); // Log the actual error
-        // If an error occurs during update, and a new file was uploaded, delete it
-        if (req.file) {
-            fs.unlink(req.file.path, (err) => {
-                if (err) console.error("Error deleting failed update upload:", err);
-            });
-        }
         res.status(500).json({ message: 'Server error updating product' });
     }
 });
@@ -330,27 +280,41 @@ app.delete('/api/products/:id', authenticateToken, async (req, res) => {
     const seller_id = req.user.id;
 
     try {
-        const [rows] = await pool.execute('SELECT * FROM products WHERE id = ? AND seller_id = ?', [id, seller_id]);
+        const [rows] = await pool.execute('SELECT image_url FROM products WHERE id = ? AND seller_id = ?', [id, seller_id]);
         const product = rows[0];
         if (!product) return res.status(404).json({ message: 'Product not found or not authorized' });
 
-        // Delete the associated image file if it exists
-        if (product.image_url) {
-            const imagePath = path.join(__dirname, product.image_url);
-            if (fs.existsSync(imagePath)) {
-                fs.unlink(imagePath, (err) => {
-                    if (err) console.error(`Error deleting image file for product ${id}:`, err);
-                });
-            }
-        }
+        const public_id_to_delete = extractPublicIdFromUrl(product.image_url);
 
         await pool.execute('DELETE FROM products WHERE id = ?', [id]);
+
+        // Delete the associated image file from Cloudinary if it exists
+        if (public_id_to_delete) {
+            cloudinary.uploader.destroy(public_id_to_delete, (error, result) => {
+                if (error) {
+                    console.error(`Error deleting image from Cloudinary (public ID: ${public_id_to_delete}):`, error);
+                } else {
+                    console.log(`Successfully deleted image from Cloudinary (public ID: ${public_id_to_delete}):`, result);
+                }
+            });
+        }
+
         res.status(200).json({ message: 'Product deleted successfully' });
     } catch (error) {
         console.error("Error deleting product:", error); // Log the actual error
         res.status(500).json({ message: 'Server error deleting product' });
     }
 });
+
+// Helper function to extract public ID from Cloudinary URL
+function extractPublicIdFromUrl(url) {
+    if (url && url.includes('cloudinary')) {
+        const parts = url.split('/');
+        const filenameWithExtension = parts[parts.length - 1];
+        return `campus_marketplace_images/${filenameWithExtension.substring(0, filenameWithExtension.lastIndexOf('.'))}`;
+    }
+    return null;
+}
 
 // Start Server
 app.listen(EXPRESS_PORT, () => {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, User, LogOut, Edit, Trash2, Check, X, MapPin } from 'lucide-react'; // Added MapPin icon
+import { Search, Plus, User, LogOut, Edit, Trash2, Check, X, MapPin } from 'lucide-react';
 import UserDashboard from './UserDashboard';
 
 // In CampusMarketplace.jsx
@@ -15,7 +15,7 @@ const CampusMarketplace = () => {
     const [editingItem, setEditingItem] = useState(null);
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
+    const [error, setError] = useState(null); // Centralized error state
 
     const categories = ['all', 'Electronics', 'Books', 'Clothing', 'Furniture', 'Other'];
 
@@ -32,21 +32,21 @@ const CampusMarketplace = () => {
         price: '',
         category: 'Electronics',
         description: '',
-        image_file: null, // Changed from image_url to image_file
+        image_file: null,
         contact_number: '',
-        location: '' // Added location
+        location: ''
     });
 
     // Edit item form data - image_file for new upload, location added
-    const [editForm, setEditForm] = useState({ // Separate state for edit form
+    const [editForm, setEditForm] = useState({
         title: '',
         price: '',
         category: 'Electronics',
         description: '',
-        image_file: null, // New file upload for edit
-        current_image_url: '', // To display existing image
+        image_file: null,
+        current_image_url: '',
         contact_number: '',
-        location: '', // Added location
+        location: '',
         sold: false
     });
 
@@ -82,6 +82,40 @@ const CampusMarketplace = () => {
 
         fetchProducts();
     }, []);
+
+    // Helper function to format phone number for WhatsApp
+    // Ensures it starts with 254 for Kenya and is digits only.
+    const formatPhoneNumberForWhatsApp = (number) => {
+        if (!number) return '';
+        // Remove all non-digit characters
+        let cleaned = number.replace(/\D/g, '');
+
+        // If it starts with 07, replace 0 with 254
+        if (cleaned.startsWith('07') && cleaned.length === 10) {
+            cleaned = '254' + cleaned.substring(1);
+        }
+        // If it's 9 digits and doesn't start with 254, assume 07 format and prepend 254
+        else if (cleaned.length === 9 && !cleaned.startsWith('254')) {
+            cleaned = '254' + cleaned;
+        }
+        // If it's 12 digits and starts with 254, it's likely already correct
+        else if (cleaned.length === 12 && cleaned.startsWith('254')) {
+            // Already good
+        }
+        // If it starts with +, remove it and prepend 254 if needed (assuming Kenya)
+        else if (cleaned.startsWith('254')) {
+            // Already good
+        }
+
+        // Basic check for length (e.g., 9 digits for 7xxxxxxxx format or 12 for 2547xxxxxxxx)
+        // Adjust these length checks based on specific requirements
+        if (cleaned.length < 9 || cleaned.length > 12) {
+             return null; // Indicates invalid length after formatting attempt
+        }
+
+        return cleaned;
+    };
+
 
     // Filter items based on search term and selected category
     const filteredItems = items.filter(item => {
@@ -165,24 +199,30 @@ const CampusMarketplace = () => {
             return;
         }
 
+        const formattedContactNumber = formatPhoneNumberForWhatsApp(newItem.contact_number);
+        if (!formattedContactNumber) {
+            setError("Please enter a valid WhatsApp number (e.g., 0712345678 or 254712345678).");
+            return;
+        }
+
         const formData = new FormData();
         formData.append('title', newItem.title);
         formData.append('price', newItem.price);
         formData.append('category', newItem.category);
         formData.append('description', newItem.description);
-        formData.append('contact_number', newItem.contact_number);
-        formData.append('location', newItem.location); // Append location
+        formData.append('contact_number', formattedContactNumber); // Use formatted number
+        formData.append('location', newItem.location);
         if (newItem.image_file) {
-            formData.append('image_file', newItem.image_file); // Append the actual file
+            formData.append('image_file', newItem.image_file);
         }
 
         try {
             const response = await fetch(`${API_BASE_URL}/products`, {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}` // No 'Content-Type' header with FormData
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
                 },
-                body: formData // Send FormData directly
+                body: formData
             });
 
             const data = await response.json();
@@ -191,12 +231,10 @@ const CampusMarketplace = () => {
                 throw new Error(data.message || 'Failed to add item.');
             }
 
-            // After successful add, re-fetch all products to update the list
             const productsResponse = await fetch(`${API_BASE_URL}/products`);
             const productsData = await productsResponse.json();
             setItems(productsData);
 
-            // Reset newItem state
             setNewItem({ title: '', price: '', category: 'Electronics', description: '', image_file: null, contact_number: '', location: '' });
             setShowAddItem(false);
         } catch (err) {
@@ -213,10 +251,10 @@ const CampusMarketplace = () => {
             price: item.price,
             category: item.category,
             description: item.description,
-            image_file: null, // Clear file input when opening, user can choose new
-            current_image_url: item.image_url, // Store current image URL for display
+            image_file: null,
+            current_image_url: item.image_url,
             contact_number: item.contact_number,
-            location: item.location, // Populate location
+            location: item.location,
             sold: item.sold
         });
     };
@@ -231,23 +269,29 @@ const CampusMarketplace = () => {
             return;
         }
 
+        const formattedContactNumber = formatPhoneNumberForWhatsApp(editForm.contact_number);
+        if (!formattedContactNumber) {
+            setError("Please enter a valid WhatsApp number (e.g., 0712345678 or 254712345678).");
+            return;
+        }
+
         const formData = new FormData();
         formData.append('title', editForm.title);
         formData.append('price', editForm.price);
         formData.append('category', editForm.category);
         formData.append('description', editForm.description);
-        formData.append('contact_number', editForm.contact_number);
-        formData.append('location', editForm.location); // Append location
+        formData.append('contact_number', formattedContactNumber); // Use formatted number
+        formData.append('location', editForm.location);
         formData.append('sold', editForm.sold);
         if (editForm.image_file) {
-            formData.append('image_file', editForm.image_file); // Append the new file if selected
+            formData.append('image_file', editForm.image_file);
         }
 
         try {
             const response = await fetch(`${API_BASE_URL}/products/${editingItem.id}`, {
                 method: 'PUT',
                 headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}` // No 'Content-Type' header with FormData
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
                 },
                 body: formData
             });
@@ -262,7 +306,7 @@ const CampusMarketplace = () => {
             const productsData = await productsResponse.json();
             setItems(productsData);
 
-            setEditingItem(null); // Close edit modal
+            setEditingItem(null);
         } catch (err) {
             console.error('Error updating product:', err);
             setError(err.message || 'An error occurred while updating the product.');
@@ -311,10 +355,7 @@ const CampusMarketplace = () => {
         formData.append('description', itemToToggle.description);
         formData.append('contact_number', itemToToggle.contact_number);
         formData.append('location', itemToToggle.location);
-        formData.append('sold', !itemToToggle.sold); // Toggle the sold status
-
-        // No need to send image_file if not changing it, but include current_image_url if your backend expects it for update.
-        // For this setup, we'll rely on the backend to keep the existing image if no new file is sent.
+        formData.append('sold', !itemToToggle.sold);
 
         try {
             const response = await fetch(`${API_BASE_URL}/products/${id}`, {
@@ -343,7 +384,9 @@ const CampusMarketplace = () => {
 
     // Function to open WhatsApp chat with seller
     const handleContactSeller = (itemTitle, sellerContact) => {
-        const cleanContact = sellerContact.replace(/[^0-9]/g, '');
+        // The number should already be formatted by the time it's saved.
+        // We'll still clean it just in case, to be robust.
+        const cleanContact = sellerContact.replace(/\D/g, '');
         const message = encodeURIComponent(`Hey, is the "${itemTitle}" you're selling still available? I saw it on Chuka Black Market.`);
         const whatsappUrl = `https://wa.me/${cleanContact}?text=${message}`;
         window.open(whatsappUrl, '_blank');
@@ -383,13 +426,18 @@ const CampusMarketplace = () => {
                                     </div>
                                 </>
                             ) : (
-                                <button
-                                    onClick={() => setShowAuth(true)}
-                                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition duration-200 ease-in-out transform hover:scale-105"
-                                    title="Login or Sign Up"
-                                >
-                                    Login / Sign Up
-                                </button>
+                                <div className="flex items-center space-x-3">
+                                    <button
+                                        onClick={() => setShowAuth(true)}
+                                        className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition duration-200 ease-in-out transform hover:scale-105"
+                                        title="Login or Sign Up"
+                                    >
+                                        Login / Sign Up to Sell
+                                    </button>
+                                    <p className="text-gray-600 text-sm hidden md:block">
+                                        (Sign up or Login to list your items!)
+                                    </p>
+                                </div>
                             )}
                         </div>
                     </div>
@@ -442,7 +490,7 @@ const CampusMarketplace = () => {
                         currentUser={currentUser}
                         userItems={userItems}
                         setItems={setItems}
-                        setEditingItem={startEditingItem} // Use the new function to prepare edit form
+                        setEditingItem={startEditingItem}
                         handleDeleteItem={handleDeleteItem}
                         handleMarkSold={handleMarkSold}
                         setShowAddItem={setShowAddItem}
@@ -665,13 +713,14 @@ const CampusMarketplace = () => {
                             <div className="mb-6">
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number (WhatsApp)</label>
                                 <input
-                                    type="text"
+                                    type="tel" // Use type="tel" for phone numbers
                                     required
                                     value={newItem.contact_number}
                                     onChange={(e) => setNewItem({ ...newItem, contact_number: e.target.value })}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                                    placeholder="e.g., 254712345678"
+                                    placeholder="e.g., 0712345678 or 254712345678"
                                 />
+                                <p className="text-xs text-gray-500 mt-1">Please include country code if not starting with 07.</p>
                             </div>
                             <button
                                 type="submit"
@@ -771,13 +820,14 @@ const CampusMarketplace = () => {
                             <div className="mb-6">
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number (WhatsApp)</label>
                                 <input
-                                    type="text"
+                                    type="tel" // Use type="tel" for phone numbers
                                     required
                                     value={editForm.contact_number}
                                     onChange={(e) => setEditForm({ ...editForm, contact_number: e.target.value })}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                                    placeholder="e.g., 0712345678"
+                                    placeholder="e.g., 0712345678 or 254712345678"
                                 />
+                                <p className="text-xs text-gray-500 mt-1">Please include country code if not starting with 07.</p>
                             </div>
                             <div className="mb-6 flex items-center">
                                 <input
