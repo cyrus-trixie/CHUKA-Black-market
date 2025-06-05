@@ -1,6 +1,6 @@
 import React from 'react';
 import { Plus } from 'lucide-react';
-import { useDarkMode } from './contexts/DarkModeContext'; // Import useDarkMode hook (if needed, otherwise can be removed if not used directly)
+import { useDarkMode } from "../contexts/DarkModeContext"; // <--- Add two dots and a slash // Import useDarkMode hook (if needed, otherwise can be removed if not used directly)
 
 const UserDashboard = ({ currentUser, userItems, setEditingItem, handleDeleteItem, handleMarkSold, setShowAddItem }) => {
     // const { darkMode } = useDarkMode(); // Uncomment if you need direct dark mode state in this component

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, User, LogOut, Edit, Trash2, Check, X, MapPin, Sun, Moon } from 'lucide-react'; // Import Sun and Moon icons
+import { Search, Plus, User, LogOut, Edit, Trash2, Check, X, MapPin, Sun, Moon } from 'lucide-react';
 import UserDashboard from './UserDashboard'; // Ensure this path is correct
-import { useDarkMode } from './contexts/DarkModeContext'; // Import useDarkMode hook
+import { useDarkMode } from '../contexts/DarkModeContext.jsx'; // Corrected path and extension
 
 const API_BASE_URL = 'https://chuka-black-market.onrender.com/api'; // Define your backend API base URL
 
@@ -337,30 +337,38 @@ const CampusMarketplace = () => {
         const itemToToggle = items.find(item => item.id === id);
         if (!itemToToggle) return;
 
-        const formData = new FormData();
-        formData.append('title', itemToToggle.title);
-        formData.append('price', itemToToggle.price);
-        formData.append('category', itemToToggle.category);
-        formData.append('description', itemToToggle.description);
-        formData.append('contact_number', itemToToggle.contact_number);
-        formData.append('location', itemToToggle.location);
-        formData.append('sold', !itemToToggle.sold);
+        // Prepare a JSON payload with the updated 'sold' status
+        // IMPORTANT: Include all fields that your backend's PUT/update endpoint expects as required,
+        // even if they are not changing, as many APIs require a full object for updates.
+        const payload = {
+            title: itemToToggle.title,
+            price: itemToToggle.price,
+            category: itemToToggle.category,
+            description: itemToToggle.description,
+            contact_number: itemToToggle.contact_number,
+            location: itemToToggle.location,
+            sold: !itemToToggle.sold, // This is the only field we're logically changing
+            image_url: itemToToggle.image_url // Make sure this property exists on itemToToggle if your backend expects it
+        };
 
         try {
             const response = await fetch(`${API_BASE_URL}/products/${id}`, {
                 method: 'PUT',
                 headers: {
+                    'Content-Type': 'application/json', // Crucial: Set Content-Type for JSON
                     'Authorization': `Bearer ${localStorage.getItem('token')}`
                 },
-                body: formData
+                body: JSON.stringify(payload) // Send JSON string
             });
 
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.message || 'Failed to update item status.');
+                console.error("Server error response data:", data); // Log for debugging
+                throw new Error(data.message || `Failed to update item status. Server responded with: ${response.status}`);
             }
 
+            // After successful update, re-fetch all products to get the latest state
             const productsResponse = await fetch(`${API_BASE_URL}/products`);
             const productsData = await productsResponse.json();
             setItems(productsData);
@@ -384,14 +392,15 @@ const CampusMarketplace = () => {
             {/* Header section */}
             <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex flex-col sm:flex-row justify-between items-center h-20 sm:h-16 py-3 sm:py-0">
+                    {/* Main header row - Always flex-row to keep logo and actions on same line */}
+                    <div className="flex justify-between items-center h-16 py-3"> {/* Adjusted classes here */}
                         {/* Logo/Title */}
-                        <div className="flex items-center mb-2 sm:mb-0">
+                        <div className="flex items-center">
                             <h1 className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400">Chuka Black Market</h1>
                         </div>
 
-                        {/* User actions / Auth */}
-                        <div className="flex flex-col sm:flex-row items-center space-y-3 sm:space-y-0 sm:space-x-4 w-full sm:w-auto">
+                        {/* User actions / Auth & Dark Mode Toggle - Always flex-row */}
+                        <div className="flex items-center space-x-2 sm:space-x-4"> {/* Adjusted classes here */}
                             {/* Dark Mode Toggle */}
                             <button
                                 onClick={toggleDarkMode}
@@ -409,34 +418,35 @@ const CampusMarketplace = () => {
                                 <>
                                     <button
                                         onClick={() => setShowAddItem(true)}
-                                        className="bg-blue-600 text-white px-3 py-1.5 text-sm rounded-lg flex items-center justify-center space-x-1 sm:space-x-2 hover:bg-blue-700 transition duration-200 ease-in-out transform hover:scale-105 w-full sm:w-auto"
+                                        className="bg-blue-600 text-white px-3 py-1.5 text-sm rounded-lg flex items-center justify-center space-x-1 sm:space-x-2 hover:bg-blue-700 transition duration-200 ease-in-out transform hover:scale-105 w-auto"
                                         title="Sell a New Item"
                                     >
-                                        <Plus size={18} className="sm:size-20" />
-                                        <span>Sell Item</span>
+                                        <Plus size={18}  /> {/* Adjusted icon sizing */}
+                                        <span className="hidden sm:inline">Sell Item</span> {/* Hide text on smallest screens */}
                                     </button>
-                                    <div className="flex items-center space-x-2 w-full sm:w-auto justify-center">
-                                        <User size={18} className="text-gray-600 dark:text-gray-300 sm:size-20" />
-                                        <span className="text-gray-700 dark:text-gray-200 font-medium text-sm sm:text-base truncate max-w-[120px]">{currentUser.name}</span>
+                                    <div className="flex items-center space-x-2 w-auto justify-center">
+                                        <User size={18} className="text-gray-600 dark:text-gray-300 " />
+                                        <span className="text-gray-700 dark:text-gray-200 font-medium text-sm sm:text-base truncate max-w-[70px] sm:max-w-[120px]">{currentUser.name}</span> {/* Smaller max-w for name */}
                                         <button
                                             onClick={handleLogout}
                                             className="text-red-600 hover:text-red-700 dark:hover:text-red-500 transition duration-200 ease-in-out transform hover:scale-105 p-1"
                                             title="Logout"
                                         >
-                                            <LogOut size={18} className="sm:size-20" />
+                                            <LogOut size={18}  />
                                         </button>
                                     </div>
                                 </>
                             ) : (
-                                <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-3 w-full sm:w-auto">
+                                <div className="flex items-center space-x-2">
                                     <button
                                         onClick={() => setShowAuth(true)}
-                                        className="bg-blue-600 text-white px-3 py-1.5 text-sm rounded-lg hover:bg-blue-700 transition duration-200 ease-in-out transform hover:scale-105 w-full sm:w-auto"
+                                        className="bg-blue-600 text-white px-3 py-1.5 text-sm rounded-lg hover:bg-blue-700 transition duration-200 ease-in-out transform hover:scale-105"
                                         title="Login or Sign Up"
                                     >
-                                        Login / Sign Up to Sell
+                                        Login / Sign Up
                                     </button>
-                                    <p className="text-gray-600 dark:text-gray-400 text-xs text-center sm:text-sm hidden sm:block">
+                                    {/* The info text is now hidden on all but large screens to save space */}
+                                    <p className="text-gray-600 dark:text-gray-400 text-xs hidden lg:block">
                                         (Sign up or Login to list your items!)
                                     </p>
                                 </div>
@@ -454,7 +464,7 @@ const CampusMarketplace = () => {
                         <strong className="font-bold">Error!</strong>
                         <span className="block sm:inline"> {error}</span>
                         <span className="absolute top-0 bottom-0 right-0 px-4 py-3">
-                            <X size={18} className="cursor-pointer" onClick={() => setError(null)} />
+                            <X size={10} className="cursor-pointer" onClick={() => setError(null)} />
                         </span>
                     </div>
                 )}
@@ -491,7 +501,6 @@ const CampusMarketplace = () => {
                     <UserDashboard
                         currentUser={currentUser}
                         userItems={userItems}
-                        setItems={setItems}
                         setEditingItem={startEditingItem}
                         handleDeleteItem={handleDeleteItem}
                         handleMarkSold={handleMarkSold}
@@ -571,7 +580,7 @@ const CampusMarketplace = () => {
                                 className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition duration-200"
                                 title="Close"
                             >
-                                <X size={20} className="sm:size-24" />
+                                <X size={18}/>
                             </button>
                         </div>
                         <form onSubmit={handleAuth}>
@@ -642,7 +651,7 @@ const CampusMarketplace = () => {
                                 className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition duration-200"
                                 title="Close"
                             >
-                                <X size={20} className="sm:size-24" />
+                                <X size={10} className="sm:size-24" />
                             </button>
                         </div>
                         <form onSubmit={handleAddItem}>
@@ -746,7 +755,7 @@ const CampusMarketplace = () => {
                                 className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition duration-200"
                                 title="Close"
                             >
-                                <X size={20} className="sm:size-24" />
+                                <X size={10} className="sm:size-24" />
                             </button>
                         </div>
                         <form onSubmit={handleEditItem}>
